@@ -14,42 +14,6 @@ colorEcho() {
     echo -e "\033[${COLOR}${@:2}\033[0m"
 }
 
-# 函数定义
-start_node() {
-
-    if [ "$1" = "first-time" ]; then
-        echo "首次启动节点..."
-        # 下载并解压 titan-node 到 /usr/local/bin
-        sudo apt update 
-        sudo apt install screen -y
-        echo "正在下载并解压 titan-node..."
-        wget -c https://github.com/Titannet-dao/titan-node/releases/download/v0.1.19/titan-l2edge_v0.1.19_patch_linux_amd64.tar.gz -O - | sudo tar -xz -C /usr/local/bin --strip-components=1
-        mv /usr/local/bin/libgoworkerd.so /root
-        export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
-titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0
-    else
-        echo "启动节点监控并后台运行，请使用查看日志(screen -r titan)，或者Titan面板功能..."
-        screen -dmS titan bash -c 'export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
-titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0'
-    fi
-}
-bind_node() {
-    echo "绑定节点...进入网页:https://test1.titannet.io/newoverview/activationcodemanagement  注册账户，并点击节点管理，点击获取身份码，在下方输入即可"
-    read -p "请输入身份码: " identity_code
-    echo "绑定节点，身份码为: $identity_code ..."
-    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
-titan-edge bind --hash=$identity_code https://api-test1.container1.titannet.io/api/v2/device/binding
-}
-stop_node() {
-    echo "停止节点..."
-    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
-    titan-edge daemon stop
-}
-check_logs() {
-    echo "查看日志..."
-    screen -r titan
-}
-
 change_limit() {
     # 关闭 selinux
     echo "System initialization"
@@ -109,37 +73,71 @@ change_limit() {
     fi
     colorEcho $GREEN "已修改最大连接数限制！"
 }
+start_node() {
+
+    if [ "$1" = "first-time" ]; then
+        echo "首次启动节点..."
+        # 下载并解压 titan-node 到 /usr/local/bin
+        sudo apt update 
+        sudo apt install screen -y
+        echo "正在下载并解压 titan-node..."
+        wget -c https://github.com/Titannet-dao/titan-node/releases/download/v0.1.19/titan-l2edge_v0.1.19_patch_linux_amd64.tar.gz -O - | sudo tar -xz -C /usr/local/bin --strip-components=1
+        mv /usr/local/bin/libgoworkerd.so /root
+        export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0
+    else
+        echo "启动节点监控并后台运行，请使用查看日志(screen -r titan)，或者Titan面板功能..."
+        screen -dmS titan bash -c 'export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0'
+    fi
+}
+bind_node() {
+    echo "绑定节点...进入网页:https://test1.titannet.io/newoverview/activationcodemanagement  注册账户，并点击节点管理，点击获取身份码，在下方输入即可"
+    read -p "请输入身份码: " identity_code
+    echo "绑定节点，身份码为: $identity_code ..."
+    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge bind --hash=$identity_code https://api-test1.container1.titannet.io/api/v2/device/binding
+}
+stop_node() {
+    echo "停止节点..."
+    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+    titan-edge daemon stop
+}
+check_logs() {
+    echo "查看日志..."
+    screen -r titan
+}
 # 主菜单
 function main_menu() {
     clear
     echo "首次安装节点后，等待生成文件（大约1-2分钟），敲击键盘ctrl c 停止节点，再运行启动节点之后绑定身份码即可"
     echo "请选择要执行的操作:"
-    echo "1) 安装节点"
-    echo "2) 启动节点"
-    echo "3) 绑定节点"
-    echo "4) 停止节点"
-    echo "5) 查看日志"
-    echo "6) 系统优化"
+    echo "1) 系统优化"
+    echo "2) 安装节点"
+    echo "3) 启动节点"
+    echo "4) 绑定节点"
+    echo "5) 停止节点"
+    echo "6) 查看日志"
     read -p "输入选择 (1-6): " choice
     case $choice in
         1)
+            change_limit
+            ;;       
+        2)
             start_node first-time
             ;;
-        2)
+        3)
             start_node
             ;;
-        3)
+        4)
             bind_node
             ;;
-        4)
+        5)
             stop_node
             ;;
-        5)
-            check_logs
-            ;;            
         6)
-            change_limit
-            ;;            
+            check_logs
+            ;;                 
         *)
             echo "无效输入，请重新输入."
             ;;
