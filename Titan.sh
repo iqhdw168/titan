@@ -1,129 +1,147 @@
 #!/bin/bash
+# 脚本保存路径
+SCRIPT_PATH="$HOME/Titan.sh"
 
-# 检查是否以root用户运行脚本
-if [ "$(id -u)" != "0" ]; then
-    echo "此脚本需要以root用户权限运行。"
-    echo "请尝试使用 'sudo -i' 命令切换到root用户，然后再次运行此脚本。"
-    exit 1
-fi
+RED="31m"
+GREEN="32m"
+YELLOW="33m"
+BLUE="34m"
+SKYBLUE="36m"
+FUCHSIA="35m"
 
-function install_node() {
-
-# 读取加载身份码信息
-read -p "输入你的身份码: " id
-
-# 让用户输入想要创建的容器数量
-read -p "请输入你想要创建的节点数量，单IP限制最多5个节点，目前建议只开1个节点，效率最高: " container_count
-
-# 让用户输入想要分配的空间大小
-read -p "请输入你想要分配每个节点的存储空间大小（GB），单个上限2T, 设置后，需要执行Docker restart 容器名称，使其成效: " storage_gb
-
-# 让用户输入存储路径（可选）
-read -p "请输入节点存储数据的宿主机路径（直接回车将使用默认路径 titan_storage_$i,依次数字顺延）: " custom_storage_path
-
-apt update
-
-# 检查 Docker 是否已安装
-if ! command -v docker &> /dev/null
-then
-    echo "未检测到 Docker，正在安装..."
-    apt-get install ca-certificates curl gnupg lsb-release -y
-    
-    # 安装 Docker 最新版本
-    apt-get install docker.io -y
-else
-    echo "Docker 已安装。"
-fi
-
-# 拉取Docker镜像
-docker pull nezha123/titan-edge:1.4
-
-# 创建用户指定数量的容器
-for i in $(seq 1 $container_count)
-do
-    # 判断用户是否输入了自定义存储路径
-    if [ -z "$custom_storage_path" ]; then
-        # 用户未输入，使用默认路径
-        storage_path="$PWD/titan_storage_$i"
-    else
-        # 用户输入了自定义路径，使用用户提供的路径
-        storage_path="$custom_storage_path"
-    fi
-
-    # 确保存储路径存在
-    mkdir -p "$storage_path"
-
-    # 运行容器，并设置重启策略为always
-    container_id=$(docker run -d --restart always -v "$storage_path:/root/.titanedge/storage" --name "titan$i" --net=host nezha123/titan-edge:1.4)
-
-    echo "节点 titan$i 已经启动 容器ID $container_id"
-
-    sleep 30
-
-        # 修改宿主机上的config.toml文件以设置StorageGB值
-docker exec $container_id bash -c "\
-    sed -i 's/^[[:space:]]*#StorageGB = .*/StorageGB = $storage_gb/' /root/.titanedge/config.toml && \
-    echo '容器 titan'$i' 的存储空间已设置为 $storage_gb GB'"
-   
-    # 进入容器并执行绑定和其他命令
-    docker exec $container_id bash -c "\
-        titan-edge bind --hash=$id https://api-test1.container1.titannet.io/api/v2/device/binding"
-done
-
-echo "==============================所有节点均已设置并启动===================================."
-
+colorEcho() {
+    COLOR=$1
+    echo -e "\033[${COLOR}${@:2}\033[0m"
 }
 
-# 卸载节点功能
-function uninstall_node() {
-    echo "你确定要卸载Titan 节点程序吗？这将会删除所有相关的数据。[Y/N]"
-    read -r -p "请确认: " response
+change_limit() {
+    # 关闭 selinux
+    echo "System initialization"
+    if [ -f "/etc/selinux/config" ]; then
+        sed -i 's/\(SELINUX=\).*/\1disabled/g' /etc/selinux/config
+        setenforce 0 >/dev/null 2>&1
+    fi
 
-    case "$response" in
-        [yY][eE][sS]|[yY]) 
-            echo "开始卸载节点程序..."
-            for i in {1..5}; do
-                sudo docker stop "titan$i" && sudo docker rm "titan$i"
-            done
-            for i in {1..5}; do 
-                rmName="storage_titan_$i"
-                rm -rf "$rmName"
-            done
-            echo "节点程序卸载完成。"
+    echo "net.ipv4.ip_forward = 1" >>/etc/sysctl.conf
+    echo "net.core.netdev_max_backlog = 50000" >>/etc/sysctl.conf
+    echo "net.ipv4.tcp_max_syn_backlog = 8192" >>/etc/sysctl.conf
+    echo "net.core.somaxconn = 50000" >>/etc/sysctl.conf
+    echo "net.ipv4.tcp_syncookies = 1" >>/etc/sysctl.conf
+    echo "net.ipv4.tcp_tw_reuse = 1" >>/etc/sysctl.conf
+    echo "net.ipv4.tcp_tw_recycle = 1" >>/etc/sysctl.conf
+    echo "net.ipv4.tcp_keepalive_time = 1800" >>/etc/sysctl.conf
+    sysctl -p >/dev/null 2>&1
+
+    # 关闭 firewalld, ufw
+    systemctl stop firewalld >/dev/null 2>&1
+    systemctl disable firewalld >/dev/null 2>&1
+    systemctl stop ufw >/dev/null 2>&1
+    systemctl disable ufw >/dev/null 2>&1
+    colorEcho $GREEN "selinux,sysctl.conf,firewall 设置完成 ."
+
+    colorEcho $BLUE "修改系统最大连接数"
+    ulimit -n 65535
+    changeLimit="n"
+
+    if [ $(grep -c "root soft nofile" /etc/security/limits.conf) -eq '0' ]; then
+        echo "root soft nofile 65535" >>/etc/security/limits.conf
+        echo "* soft nofile 65535" >>/etc/security/limits.conf
+        changeLimit="y"
+    fi
+
+    if [ $(grep -c "root hard nofile" /etc/security/limits.conf) -eq '0' ]; then
+        echo "root hard nofile 65535" >>/etc/security/limits.conf
+        echo "* hard nofile 65535" >>/etc/security/limits.conf
+        changeLimit="y"
+    fi
+
+    if [ $(grep -c "DefaultLimitNOFILE=65535" /etc/systemd/user.conf) -eq '0' ]; then
+        echo "DefaultLimitNOFILE=65535" >>/etc/systemd/user.conf
+        changeLimit="y"
+    fi
+
+    if [ $(grep -c "DefaultLimitNOFILE=65535" /etc/systemd/system.conf) -eq '0' ]; then
+        echo "DefaultLimitNOFILE=65535" >>/etc/systemd/system.conf
+        changeLimit="y"
+    fi
+
+    if [[ "$changeLimit" = "y" ]]; then
+        echo "连接数限制已修改为65535,重启服务器后生效"
+    else
+        echo -n "当前连接数限制："
+        ulimit -n
+    fi
+    colorEcho $GREEN "已修改最大连接数限制！"
+}
+start_node() {
+
+    if [ "$1" = "first-time" ]; then
+        echo "首次启动节点..."
+        # 下载并解压 titan-node 到 /usr/local/bin
+        sudo apt update 
+        sudo apt install screen -y
+        echo "正在下载并解压 titan-node..."
+        wget -c https://github.com/Titannet-dao/titan-node/releases/download/v0.1.19/titan-l2edge_v0.1.19_patch_linux_amd64.tar.gz -O - | sudo tar -xz -C /usr/local/bin --strip-components=1
+        mv /usr/local/bin/libgoworkerd.so /root
+        export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0
+    else
+        echo "启动节点监控并后台运行，请使用查看日志(screen -r titan)，或者Titan面板功能..."
+        screen -dmS titan bash -c 'export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge daemon start --init --url https://cassini-locator.titannet.io:5000/rpc/v0'
+    fi
+}
+bind_node() {
+    echo "绑定节点...进入网页:https://test1.titannet.io/newoverview/activationcodemanagement  注册账户，并点击节点管理，点击获取身份码，在下方输入即可"
+    read -p "请输入身份码: " identity_code
+    echo "绑定节点，身份码为: $identity_code ..."
+    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+titan-edge bind --hash=$identity_code https://api-test1.container1.titannet.io/api/v2/device/binding
+}
+stop_node() {
+    echo "停止节点..."
+    export LD_LIBRARY_PATH=$LD_LIZBRARY_PATH:./libgoworkerd.so
+    titan-edge daemon stop
+}
+check_logs() {
+    echo "查看日志..."
+    screen -r titan
+}
+# 主菜单
+function main_menu() {
+    clear
+    echo "首次安装节点后，等待生成文件（大约1-2分钟），敲击键盘ctrl c 停止节点，再运行启动节点之后绑定身份码即可"
+    echo "请选择要执行的操作:"
+    echo "1) 系统优化"
+    echo "2) 安装节点"
+    echo "3) 启动节点"
+    echo "4) 绑定节点"
+    echo "5) 停止节点"
+    echo "6) 查看日志"
+    read -p "输入选择 (1-6): " choice
+    case $choice in
+        1)
+            change_limit
+            ;;       
+        2)
+            start_node first-time
             ;;
+        3)
+            start_node
+            ;;
+        4)
+            bind_node
+            ;;
+        5)
+            stop_node
+            ;;
+        6)
+            check_logs
+            ;;                 
         *)
-            echo "取消卸载操作。"
+            echo "无效输入，请重新输入."
             ;;
     esac
 }
-
-
-
-# 主菜单
-function main_menu() {
-    while true; do
-        clear
-        echo "脚本以及教程由推特用户大赌哥 @y95277777 编写，免费开源，请勿相信收费"
-        echo "================================================================"
-        echo "节点社区 Telegram 群组:https://t.me/niuwuriji"
-        echo "节点社区 Telegram 频道:https://t.me/niuwuriji"
-        echo "节点社区 Discord 社群:https://discord.gg/GbMV5EcNWF"
-        echo "退出脚本，请按键盘ctrl c退出即可"
-        echo "请选择要执行的操作:"
-        echo "1. 安装节点"
-        echo "2. 卸载节点"
-        read -p "请输入选项（1-2）: " OPTION
-
-        case $OPTION in
-        1) install_node ;;
-        2) uninstall_node ;;
-        *) echo "无效选项。" ;;
-        esac
-        echo "按任意键返回主菜单..."
-        read -n 1
-    done
-    
-}
-
 # 显示主菜单
 main_menu
