@@ -69,6 +69,7 @@ do
     docker exec $container_id bash -c "\
         sed -i 's/^[[:space:]]*#StorageGB = .*/StorageGB = $storage_gb/' /root/.titanedge/config.toml && \
         sed -i 's/^[[:space:]]*#ListenAddress = \"0.0.0.0:1234\"/ListenAddress = \"0.0.0.0:$current_rpc_port\"/' /root/.titanedge/config.toml && \
+        sed -i 's/^[[:space:]]*LocatorURL = \"https://cassini-locator.titannet.io:5000/rpc/v0"/LocatorURL = \"https://cassini-ger-locator.titannet.io:5000/rpc/v0"/' /root/.titanedge/config.toml && \
         echo '容器 titan'$i' 的存储空间设置为 $storage_gb GB，RPC 端口设置为 $current_rpc_port'"
 
     # 重启容器以让设置生效
